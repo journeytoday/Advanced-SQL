@@ -1,155 +1,122 @@
--- Create Orders table
-CREATE TABLE Orders (
-    order_id INT PRIMARY KEY,
-    customer_id INT,
-    order_date DATE,
-    total_amount DECIMAL(10, 2)
+-- Create table for Customers
+CREATE TABLE IF NOT EXISTS Customers (
+    CustomerID INTEGER PRIMARY KEY AUTOINCREMENT,
+    FirstName TEXT,
+    LastName TEXT,
+    Email TEXT
 );
 
--- Create OrderItems table
-CREATE TABLE OrderItems (
-    order_item_id INT PRIMARY KEY,
-    order_id INT,
-    product_id INT,
-    quantity INT,
-    price DECIMAL(10, 2),
-    item_amount DECIMAL(10, 2),
-    FOREIGN KEY (order_id) REFERENCES Orders(order_id),
-    FOREIGN KEY (product_id) REFERENCES Products(product_id)
+-- Create table for Orders
+CREATE TABLE IF NOT EXISTS Orders (
+    OrderID INTEGER PRIMARY KEY AUTOINCREMENT,
+    CustomerID INTEGER,
+    OrderDate DATE,
+    TotalPrice DECIMAL(10, 2),
+    FOREIGN KEY (CustomerID) REFERENCES Customers(CustomerID)
 );
 
--- Create Products table
-CREATE TABLE Products (
-    product_id INT PRIMARY KEY,
-    product_name VARCHAR(255),
-    category VARCHAR(255)
+-- Create table for OrderItems
+CREATE TABLE IF NOT EXISTS OrderItems (
+    OrderItemID INTEGER PRIMARY KEY AUTOINCREMENT,
+    OrderID INTEGER,
+    ProductID INTEGER,
+    Quantity INTEGER,
+    Price DECIMAL(10, 2),
+    FOREIGN KEY (OrderID) REFERENCES Orders(OrderID),
+    FOREIGN KEY (ProductID) REFERENCES Products(ProductID)
 );
 
--- Create materialized view for sales by product
-CREATE MATERIALIZED VIEW mv_sales_by_product AS
-SELECT
-    oi.product_id,
-    p.product_name,
-    SUM(oi.quantity) AS total_quantity,
-    SUM(oi.item_amount) AS total_amount
-FROM
-    OrderItems oi
-JOIN
-    Products p ON oi.product_id = p.product_id
-JOIN
-    Orders o ON oi.order_id = o.order_id
-WHERE
-    o.order_date BETWEEN '2022-01-01' AND '2022-12-31'
-GROUP BY
-    oi.product_id, p.product_name;
+-- Create table for Products
+CREATE TABLE IF NOT EXISTS Products (
+    ProductID INTEGER PRIMARY KEY AUTOINCREMENT,
+    ProductName TEXT,
+    Description TEXT,
+    Price DECIMAL(10, 2)
+);
 
--- Create index on customer_name column in Orders table
-CREATE INDEX idx_customer_name ON Orders(customer_name);
+-- Insert dummy data into Customers table
+INSERT INTO Customers (FirstName, LastName, Email)
+VALUES ('John', 'Doe', 'johndoe@example.com'),
+       ('Jane', 'Doe', 'janedoe@example.com'),
+       ('Michael', 'Smith', 'michaelsmith@example.com');
 
--- Example of using Common Table Expressions (CTEs)
-WITH OrderSummary AS (
-    SELECT
-        order_id,
-        SUM(quantity) AS total_quantity,
-        SUM(item_amount) AS total_amount
-    FROM
-        OrderItems
-    GROUP BY
-        order_id
+-- Insert dummy data into Products table
+INSERT INTO Products (ProductName, Description, Price)
+VALUES ('Product 1', 'Description 1', 10.99),
+       ('Product 2', 'Description 2', 19.99),
+       ('Product 3', 'Description 3', 5.99);
+
+-- Insert dummy data into Orders table
+INSERT INTO Orders (CustomerID, OrderDate, TotalPrice)
+VALUES (1, '2023-04-01', 10.99),
+       (2, '2023-04-02', 19.99),
+       (3, '2023-04-03', 5.99);
+
+-- Insert dummy data into OrderItems table
+INSERT INTO OrderItems (OrderID, ProductID, Quantity, Price)
+VALUES (1, 1, 1, 10.99),
+       (2, 2, 2, 19.99),
+       (3, 3, 3, 5.99);
+
+
+-- Trigger to calculate total price for Orders
+CREATE TRIGGER IF NOT EXISTS OrderTotalTrigger
+AFTER INSERT ON OrderItems
+BEGIN
+    UPDATE Orders
+    SET TotalPrice = (
+        SELECT SUM(Quantity * Price)
+        FROM OrderItems
+        WHERE OrderID = NEW.OrderID
+    )
+    WHERE OrderID = NEW.OrderID;
+END;
+
+-- Using subquery to achieve ROW_NUMBER() equivalent
+SELECT (SELECT COUNT(*) 
+        FROM Orders o 
+        WHERE o.OrderDate < t.OrderDate OR (o.OrderDate = t.OrderDate AND o.OrderID <= t.OrderID)
+       ) AS RowNumber,
+       t.OrderID, t.CustomerID, t.OrderDate, t.TotalPrice
+FROM Orders t
+ORDER BY t.OrderDate, t.OrderID;
+-- Using CTE to get total order value by customer
+WITH TotalOrderValue AS (
+    SELECT CustomerID, SUM(TotalPrice) AS TotalValue
+    FROM Orders
+    GROUP BY CustomerID
 )
-SELECT
-    o.order_id,
-    o.order_date,
-    o.total_amount,
-    os.total_quantity,
-    os.total_amount,
-    SUM(os.total_amount) OVER (PARTITION BY o.customer_id ORDER BY o.order_date) AS running_total
-FROM
-    Orders o
-JOIN
-    OrderSummary os ON o.order_id = os.order_id
-ORDER BY
-    o.customer_id, o.order_date;
-
--- Example of using recursive CTE to query hierarchical data
-WITH RECURSIVE ProductHierarchy AS (
-    SELECT
-        product_id,
-        product_name,
-        category,
-        0 AS level
-    FROM
-        Products
-    WHERE
-        category = 'Category 1'
+SELECT c.FirstName, c.LastName, t.TotalValue
+FROM Customers c
+JOIN TotalOrderValue t ON c.CustomerID = t.CustomerID;
+-- Using recursive query to retrieve employees and their subordinates from an employee table
+WITH RECURSIVE EmployeeHierarchy AS (
+    SELECT EmployeeID, FirstName, LastName, SupervisorID
+    FROM Employees
+    WHERE EmployeeID = 1 -- Starting employee ID
     UNION ALL
-    SELECT
-        p.product_id,
-        p.product_name,
-        p.category,
-        ph.level + 1
-    FROM
-        Products p
-    JOIN
-        ProductHierarchy ph ON p.category = ph.product_name
+    SELECT e.EmployeeID, e.FirstName, e.LastName, e.SupervisorID
+    FROM Employees e
+    INNER JOIN EmployeeHierarchy eh ON e.SupervisorID = eh.EmployeeID
 )
-SELECT
-    product_id,
-    product_name,
-    category,
-    level
-FROM
-    ProductHierarchy
-ORDER BY
-    level;
-
--- Example of using PIVOT and UNPIVOT to transform data
-SELECT
-    product_id,
-    quarter1,
-    quarter2,
-    quarter3,
-    quarter4
-FROM (
-    SELECT
-        product_id,
-        CONCAT('Q', QUARTER(order_date)) AS quarter,
-        SUM(quantity) AS total_quantity
-    FROM
-        Orders o
-    JOIN
-        OrderItems oi ON o.order_id = oi.order_id
-    GROUP BY
-        product_id, quarter
-) AS Subquery
-PIVOT (
-    SUM(total_quantity)
-    FOR quarter IN ('Q1', 'Q2', 'Q3', 'Q4')
-) AS PivotTable
-ORDER BY
-    product_id;
-
--- Example of using transactions with locking to ensure data integrity
-START TRANSACTION;
-BEGIN TRY
-    -- Insert a new order
-    INSERT INTO Orders (order_id, customer_id, order_date, total_amount)
-VALUES (101, 1, '2023-04-12', 1000.00);
-
--- Update the total_amount for the order
-UPDATE Orders
-SET total_amount = total_amount + 500.00
-WHERE order_id = 101;
-
--- Delete an order item
-DELETE FROM OrderItems
-WHERE order_item_id = 1;
-
+SELECT EmployeeID, FirstName, LastName, SupervisorID
+FROM EmployeeHierarchy;
+-- Creating an index on the OrderDate column for faster queries
+CREATE INDEX idx_OrderDate ON Orders (OrderDate);
+-- Example of using transactions to update multiple tables atomically
+BEGIN;
+UPDATE Customers SET FirstName = 'John' WHERE CustomerID = 1;
+UPDATE Orders SET TotalPrice = 20.99 WHERE CustomerID = 1;
 COMMIT;
-END TRY
-BEGIN CATCH
--- If any errors occur, rollback the transaction
-ROLLBACK;
--- Print error message
-SELECT CONCAT('Error: ', ERROR_MESSAGE()) AS error_message;
-END CATCH;
+-- Using INNER JOIN to retrieve orders and corresponding customer information
+SELECT o.OrderID, o.CustomerID, c.FirstName, c.LastName
+FROM Orders o
+JOIN Customers c ON o.CustomerID = c.CustomerID;
+-- Creating a trigger to automatically update the LastModified column on updates to the Orders table
+CREATE TRIGGER update_last_modified
+AFTER UPDATE ON Orders
+FOR EACH ROW
+BEGIN
+    UPDATE Orders SET LastModified = CURRENT_TIMESTAMP WHERE OrderID = NEW.OrderID;
+END;
+
