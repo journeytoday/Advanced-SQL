@@ -19,7 +19,7 @@ You will need the following software installed on your machine:
 
 1. Clone the repository to your local machine using `git clone`.
 
-git clone https://github.com/yourusername/sqlite-project.git
+git clone https://github.com/journeytoday/Advanced-SQL.git
 
 2. Navigate to the project directory.
 
